@@ -9,6 +9,10 @@
 #include <time.h>
 #include <assert.h>
 
+#define _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
+// <ccomplex>, <cstdalign>, <cstdbool>, and <ctgmath> are deprecated.
+#include <tgaimage.h>
+
 //---------------------------------------------------------------------------//
 #define WIDTH 720
 #define HEIGHT 1280
@@ -223,6 +227,15 @@ WinMain (
   _In_ INT p_CmdShow
 )
 {
+#if 0 // test tga helpers
+  const TGAColor white = TGAColor({ 255, 255, 255, 255 });
+  const TGAColor red = TGAColor({ 255, 0, 0, 255 });
+  TGAImage image(100, 100, TGAImage::RGB);
+  image.set(52, 41, red);
+  image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
+  image.write_tga_file("output.tga");
+#endif
+
   UNREFERENCED_PARAMETER(p_PrevInstance);
   UNREFERENCED_PARAMETER(p_CmdLine);
   UNREFERENCED_PARAMETER(p_CmdShow);
@@ -232,45 +245,40 @@ WinMain (
   windowClass.hInstance = p_Instance;
   windowClass.lpszClassName = L"My Window Class";
 
-  // Initial create global buffer
+  // Initial create global buffer:
   resizeDIBSection(1280, 720);
 
-  // Seed the rng
-  srand(static_cast<unsigned>(time(0)));
-
-  if (!RegisterClass(&windowClass))
-  {
-    assert(false);
-    return -1;
-  }
+  assert(RegisterClass(&windowClass));
 
   HWND windowHandle = CreateWindowEx(0, windowClass.lpszClassName,
     L"Cpu Rasterizer", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
     CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
     0, 0, p_Instance, 0);
+  assert(windowHandle);
 
-  if (windowHandle)
+  g_Running = true;
+  MSG message;
+  g_DeviceContext = GetDC(windowHandle);
+
+  // Seed the rng
+  srand(static_cast<unsigned>(time(0)));
+
+  // Initial clear:
+  clearBuffer(windowHandle);
+
+  // Main loop:
+  while (g_Running)
   {
-    g_Running = true;
-    MSG message;
-    g_DeviceContext = GetDC(windowHandle);
 
-    // Initial clear
-    clearBuffer(windowHandle);
-
-    while (g_Running)
+    while (PeekMessageA(&message, 0, 0, 0, PM_REMOVE))
     {
-
-      while (PeekMessageA(&message, 0, 0, 0, PM_REMOVE))
+      if (message.message == WM_QUIT)
       {
-        if (message.message == WM_QUIT)
-        {
-          g_Running = false;
-        }
-
-        TranslateMessage(&message);
-        DispatchMessageA(&message);
+        g_Running = false;
       }
+
+      TranslateMessage(&message);
+      DispatchMessageA(&message);
     }
   }
 
