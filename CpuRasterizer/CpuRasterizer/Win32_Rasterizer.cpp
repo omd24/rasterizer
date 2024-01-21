@@ -1,22 +1,22 @@
-// Win32_Rasterizer.cpp : This file contains the 'main' function. Program execution begins and ends there.
+﻿// Win32_Rasterizer.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <stdint.h>
 #include <stdlib.h> // rand(), srand()
-
-#include <time.h>
 #include <assert.h>
 
 #define _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
 // <ccomplex>, <cstdalign>, <cstdbool>, and <ctgmath> are deprecated.
-#include <tgaimage.h>
+#include <tinyrenderer/tgaimage.h>
+#include <tinyrenderer/model.h>
 
 //---------------------------------------------------------------------------//
-#define WIDTH 720
-#define HEIGHT 1280
-
+template <typename T> static T AlignUp(T val, T alignment)
+{
+  return (val + alignment - 1) & ~(alignment - 1);
+}
 //---------------------------------------------------------------------------//
 struct WindowDimension
 {
@@ -34,10 +34,33 @@ struct BackBuffer
   int pitch;
 };
 //---------------------------------------------------------------------------//
+// Color value [0, 1]
+struct ColorRGBA
+{
+  float r;
+  float g;
+  float b;
+  float a;
+};
+static constexpr ColorRGBA WHITE = { 1.0f, 1.0f, 1.0f, 1.0f };
+static constexpr ColorRGBA BLACK = { 0.0f, 0.0f, 0.0f, 1.0f };
+static constexpr ColorRGBA RED = { 1.0f, 0.0f, 0.0f, 1.0f };
+static constexpr ColorRGBA BLUE = { 0.0f, 0.0f, 1.0f, 1.0f };
+//---------------------------------------------------------------------------//
+
 static bool g_Running;
 static BackBuffer g_BackBuffer;
 static HDC g_DeviceContext;
+static Model* g_Model = nullptr;
 
+
+//---------------------------------------------------------------------------//
+uint32_t
+roundFloatToUInt32(float p_Value)
+{
+  uint32_t result = (uint32_t)roundf(p_Value);
+  return(result);
+}
 //---------------------------------------------------------------------------//
 static WindowDimension
 getWindowDimension (HWND p_WindowHandle)
@@ -74,7 +97,8 @@ clearBuffer (HWND p_WindowHandle)
       char unsigned blue = 255;
       char unsigned green = 255;
       char unsigned red = 255;
-      *pixel++ = ((red << 16) | (green << 8) | blue);
+      char unsigned alpha = 255;
+      *pixel++ = ((alpha << 24) | (red << 16) | (green << 8) | blue);
     }
     row += g_BackBuffer.pitch;
   }
@@ -83,32 +107,102 @@ clearBuffer (HWND p_WindowHandle)
 }
 //---------------------------------------------------------------------------//
 static void
-renderLine (
+renderLine(
   int p_X0, int p_Y0,
   int p_X1, int p_Y1,
-  HWND p_WindowHandle
+  HWND p_WindowHandle,
+  ColorRGBA p_Color
 )
 {
-  int slope = (p_X1 == p_X0) ? 0 : (p_Y1 - p_Y0) / (p_X1 - p_X0);
-  int intercept = p_Y0 - slope * p_X0;
+  // extract color
+  float blue = p_Color.b;
+  float green = p_Color.g;
+  float red = p_Color.r;
+  float alpha = p_Color.a;
+  
+  uint32_t Color32 =
+    ((roundFloatToUInt32(alpha * 255.0f) << 24) |
+      (roundFloatToUInt32(red * 255.0f) << 16) |
+      (roundFloatToUInt32(green * 255.0f) << 8) |
+      (roundFloatToUInt32(blue * 255.0f) << 0));
 
-  uint8_t* row = (uint8_t*)g_BackBuffer.memory;
-  uint8_t blue = rand() % 255;
-  uint8_t green = rand() % 255;
-  uint8_t red = rand() % 255;
 
-  // TODO(OM): Optimize buffer traverse
-  for (int y = 0; y < g_BackBuffer.height; ++y)
+  // move from top to down
+  if (p_Y0 > p_Y1) {
+    std::swap(p_X0, p_X1);
+    std::swap(p_Y0, p_Y1);
+  }
+
+  int minX = std::min<int>(p_X0, p_X1);
+  int maxX = std::max<int>(p_X0, p_X1);
+  int minY = std::min<int>(p_Y0, p_Y1);
+  int maxY = std::max<int>(p_Y0, p_Y1);
+
+  // clamp values
+  if (p_X0 < 0)
   {
+    p_X0 = 0;
+  }
+
+  if (p_Y0 < 0)
+  {
+    p_Y0 = 0;
+  }
+
+  if (p_X1 > g_BackBuffer.width)
+  {
+    p_X1 = g_BackBuffer.width;
+  }
+
+  if (p_Y1 > g_BackBuffer.height)
+  {
+    p_Y1 = g_BackBuffer.height;
+  }
+
+  if (minX < 0)
+  {
+    minX = 0;
+  }
+
+  if (minY < 0)
+  {
+    minY = 0;
+  }
+
+  if (maxX > g_BackBuffer.width)
+  {
+    maxX = g_BackBuffer.width;
+  }
+
+  if (maxY > g_BackBuffer.height)
+  {
+    maxY = g_BackBuffer.height;
+  }
+
+  // find line equation
+  float deltaX = float(p_X1) - float(p_X0);
+  float deltaY = float(p_Y1) - float(p_Y0);
+  float slope = (p_X1 == p_X0) ? 0 : deltaY / deltaX;
+  float intercept = p_Y0 - slope * p_X0;
+
+  uint8_t* row = ((uint8_t*)g_BackBuffer.memory +
+    p_X0 * g_BackBuffer.bytesPerPixel +
+    p_Y0 * g_BackBuffer.pitch);
+
+  // TODO: Make the error margin reasonable (slope dependent)
+  const float margin = 0.1f;
+
+  for (int y = minY; y < maxY; ++y) {
     uint32_t* pixel = (uint32_t*)row;
-    for (int x = 0; x < g_BackBuffer.width; ++x)
+    for (int x = minX; x < maxX; ++x)
     {
-      if (y == (slope * x + intercept))
+      if (std::abs(float(y) - (slope * x + intercept)) < margin)
       {
-        *pixel = ((red << 16) | (green << 8) | blue);
+        *pixel = Color32;
       }
       ++pixel;
     }
+
     row += g_BackBuffer.pitch;
   }
 
@@ -134,11 +228,12 @@ resizeDIBSection (int p_Width, int p_Height)
   g_BackBuffer.bitmapInfo.bmiHeader.biBitCount = 32;
   g_BackBuffer.bitmapInfo.bmiHeader.biCompression = BI_RGB;
 
-  int BitmapMemorySize = g_BackBuffer.width * g_BackBuffer.height * g_BackBuffer.bytesPerPixel;
+  g_BackBuffer.pitch = AlignUp(p_Width * g_BackBuffer.bytesPerPixel, 16);
+
+  int BitmapMemorySize = g_BackBuffer.pitch * g_BackBuffer.height;
   g_BackBuffer.memory = VirtualAlloc(0, BitmapMemorySize,
     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
-  g_BackBuffer.pitch = p_Width * g_BackBuffer.bytesPerPixel;
 }
 //---------------------------------------------------------------------------//
 LRESULT CALLBACK WindowProc(
@@ -191,12 +286,33 @@ LRESULT CALLBACK WindowProc(
       }
       else if (virtualKeyCode == 'L')
       {
-        int x0 = rand() % WIDTH;
-        int y0 = rand() % HEIGHT;
-        int x1 = rand() % WIDTH;
-        int y1 = rand() % HEIGHT;
-        renderLine(x0, y0, x1, y1,
-          p_WindowHandle);
+        // Draw some test Lines
+
+        renderLine(0, 0, 400, 400, p_WindowHandle, BLUE);
+        renderLine(0, 200, 400, 600, p_WindowHandle, RED);
+        renderLine(250, 250, 500, 100, p_WindowHandle, BLACK);
+
+        renderLine(800, 400, 130, 200, p_WindowHandle, RED);
+        renderLine(0, 0, g_BackBuffer.width, g_BackBuffer.height, p_WindowHandle, RED);
+        renderLine(0, g_BackBuffer.height, g_BackBuffer.width, 0, p_WindowHandle, BLUE);
+      }
+      else if (virtualKeyCode == 'M')
+      {
+        // Draw the loaded Model
+        // NOTE(OM): The whole world is upside down ^^
+        assert(g_Model->initialized);
+        for (int i = 0; i < g_Model->nfaces(); i++) {
+          std::vector<int> face = g_Model->face(i);
+          for (int j = 0; j < 3; j++) {
+            Vec3f v0 = g_Model->vert(face[j]);
+            Vec3f v1 = g_Model->vert(face[(j + 1) % 3]);
+            int x0 = (v0.x + 1.) * g_BackBuffer.width / 2.;
+            int y0 = (v0.y + 1.) * g_BackBuffer.height / 2.;
+            int x1 = (v1.x + 1.) * g_BackBuffer.width / 2.;
+            int y1 = (v1.y + 1.) * g_BackBuffer.height / 2.;
+            renderLine(x0, y0, x1, y1, p_WindowHandle, BLACK);
+          }
+        }
       }
     }
 
@@ -227,15 +343,6 @@ WinMain (
   _In_ INT p_CmdShow
 )
 {
-#if 0 // test tga helpers
-  const TGAColor white = TGAColor({ 255, 255, 255, 255 });
-  const TGAColor red = TGAColor({ 255, 0, 0, 255 });
-  TGAImage image(100, 100, TGAImage::RGB);
-  image.set(52, 41, red);
-  image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
-  image.write_tga_file("output.tga");
-#endif
-
   UNREFERENCED_PARAMETER(p_PrevInstance);
   UNREFERENCED_PARAMETER(p_CmdLine);
   UNREFERENCED_PARAMETER(p_CmdShow);
@@ -245,28 +352,35 @@ WinMain (
   windowClass.hInstance = p_Instance;
   windowClass.lpszClassName = L"My Window Class";
 
-  // Initial create global buffer:
-  resizeDIBSection(1280, 720);
+  int windowWidth = 700;
+  int windowHeight = 700;
+  windowWidth = AlignUp(windowWidth, 256);
+  windowHeight = AlignUp(windowHeight, 256);
 
   assert(RegisterClass(&windowClass));
 
   HWND windowHandle = CreateWindowEx(0, windowClass.lpszClassName,
     L"Cpu Rasterizer", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-    CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+    CW_USEDEFAULT, CW_USEDEFAULT, windowWidth, windowHeight,
     0, 0, p_Instance, 0);
   assert(windowHandle);
-
-  g_Running = true;
-  MSG message;
   g_DeviceContext = GetDC(windowHandle);
 
-  // Seed the rng
-  srand(static_cast<unsigned>(time(0)));
+  // Load model
+  g_Model = new Model("../../Assets/obj/african_head/african_head.obj");
+  assert(g_Model->initialized);
 
-  // Initial clear:
+  // Initialize and clear global buffer:
+  WindowDimension dimension = getWindowDimension(windowHandle);
+  resizeDIBSection(dimension.width, dimension.height);
   clearBuffer(windowHandle);
 
+  SetFocus(windowHandle);
+  SetForegroundWindow(windowHandle);
+
   // Main loop:
+  MSG message;
+  g_Running = true;
   while (g_Running)
   {
 

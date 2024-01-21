@@ -133,11 +133,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\Externals\tgaimage.cpp" />
+    <ClCompile Include="..\..\Externals\tinyrenderer\model.cpp" />
+    <ClCompile Include="..\..\Externals\tinyrenderer\tgaimage.cpp" />
     <ClCompile Include="Win32_Rasterizer.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Externals\tgaimage.h" />
+    <ClInclude Include="..\..\Externals\tinyrenderer\geometry.h" />
+    <ClInclude Include="..\..\Externals\tinyrenderer\model.h" />
+    <ClInclude Include="..\..\Externals\tinyrenderer\tgaimage.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

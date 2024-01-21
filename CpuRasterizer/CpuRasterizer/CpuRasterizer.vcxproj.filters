@@ -2,7 +2,10 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="Win32_Rasterizer.cpp" />
-    <ClCompile Include="..\..\Externals\tgaimage.cpp">
+    <ClCompile Include="..\..\Externals\tinyrenderer\model.cpp">
+      <Filter>Externals</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Externals\tinyrenderer\tgaimage.cpp">
       <Filter>Externals</Filter>
     </ClCompile>
   </ItemGroup>
@@ -12,7 +15,13 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Externals\tgaimage.h">
+    <ClInclude Include="..\..\Externals\tinyrenderer\model.h">
+      <Filter>Externals</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Externals\tinyrenderer\tgaimage.h">
+      <Filter>Externals</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Externals\tinyrenderer\geometry.h">
       <Filter>Externals</Filter>
     </ClInclude>
   </ItemGroup>
