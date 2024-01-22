@@ -212,6 +212,49 @@ renderLine(
 
   copyBufforToWindow(&p_WindowHandle);
 }
+static void
+renderLineExperimental(
+  int p_X0, int p_Y0,
+  int p_X1, int p_Y1,
+  HWND p_WindowHandle,
+  ColorRGBA p_Color
+)
+{
+  // extract color
+  float blue = p_Color.b;
+  float green = p_Color.g;
+  float red = p_Color.r;
+  float alpha = p_Color.a;
+
+  uint32_t Color32 = 0;
+    ((roundFloatToUInt32(alpha * 255.0f) << 24) |
+      (roundFloatToUInt32(red * 255.0f) << 16) |
+      (roundFloatToUInt32(green * 255.0f) << 8) |
+      (roundFloatToUInt32(blue * 255.0f) << 0));
+
+  bool steep = false;
+  if (std::abs(p_X0 - p_X1) < std::abs(p_Y0 - p_Y1)) {
+    std::swap(p_X0, p_Y0);
+    std::swap(p_X1, p_Y1);
+    steep = true;
+  }
+  if (p_X0 > p_X1) {
+    std::swap(p_X0, p_X1);
+    std::swap(p_Y0, p_Y1);
+  }
+
+  uint8_t* buffer = (uint8_t*)g_BackBuffer.memory;
+  for (int x = p_X0; x <= p_X1; x++) {
+    float t = (x - p_X0) / (float)(p_X1 - p_X0);
+    int y = p_Y0 * (1. - t) + p_Y1 * t;
+    if (steep) {
+      buffer[(x * g_BackBuffer.height + y) * g_BackBuffer.bytesPerPixel] = Color32;
+    }
+    else {
+      buffer[(y * g_BackBuffer.width + x )* g_BackBuffer.bytesPerPixel] = Color32;
+    }
+  }
+}
 //---------------------------------------------------------------------------//
 static void
 resizeDIBSection (int p_Width, int p_Height)
@@ -237,7 +280,7 @@ resizeDIBSection (int p_Width, int p_Height)
   g_BackBuffer.bitmapInfo.bmiHeader.biBitCount = 32;
   g_BackBuffer.bitmapInfo.bmiHeader.biCompression = BI_RGB;
 
-  g_BackBuffer.pitch = AlignUp(p_Width * g_BackBuffer.bytesPerPixel, 16);
+  g_BackBuffer.pitch = AlignUp(p_Width * g_BackBuffer.bytesPerPixel, 4);
 
   int BitmapMemorySize = g_BackBuffer.pitch * g_BackBuffer.height;
   g_BackBuffer.memory = VirtualAlloc(0, BitmapMemorySize,
@@ -312,6 +355,7 @@ LRESULT CALLBACK WindowProc(
       }
       else if (virtualKeyCode == 'M')
       {
+
         // Draw the loaded Model
         // NOTE(OM): The y-coordinate is upside down ^^
         assert(g_Model->initialized);
@@ -325,6 +369,7 @@ LRESULT CALLBACK WindowProc(
             int x1 = (v1.x + 1.) * g_BackBuffer.width / 2.;
             int y1 = (v1.y + 1.) * g_BackBuffer.height / 2.;
             renderLine(x0, y0, x1, y1, p_WindowHandle, BLACK);
+            //renderLineExperimental(x0, y0, x1, y1, p_WindowHandle, BLACK);
           }
         }
       }
