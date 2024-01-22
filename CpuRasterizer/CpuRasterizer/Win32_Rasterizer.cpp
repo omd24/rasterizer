@@ -12,6 +12,10 @@
 #include <tinyrenderer/tgaimage.h>
 #include <tinyrenderer/model.h>
 
+// Enable to flip y for wireframe model:
+// https://github.com/ssloy/tinyrenderer/wiki/Lesson-1:-Bresenham%E2%80%99s-Line-Drawing-Algorithm
+#define ENABLE_FLIP_VERTICALLY 1
+
 //---------------------------------------------------------------------------//
 template <typename T> static T AlignUp(T val, T alignment)
 {
@@ -223,7 +227,12 @@ resizeDIBSection (int p_Width, int p_Height)
 
   g_BackBuffer.bitmapInfo.bmiHeader.biSize = sizeof(g_BackBuffer.bitmapInfo.bmiHeader);
   g_BackBuffer.bitmapInfo.bmiHeader.biWidth = g_BackBuffer.width;
-  g_BackBuffer.bitmapInfo.bmiHeader.biHeight = -g_BackBuffer.height; // to have top-down bitmap (not bottom-up)
+
+#if (ENABLE_FLIP_VERTICALLY > 0) // bottom up
+  g_BackBuffer.bitmapInfo.bmiHeader.biHeight = g_BackBuffer.height;
+#else
+  g_BackBuffer.bitmapInfo.bmiHeader.biHeight = -g_BackBuffer.height; // to have top-down bitmap.
+#endif
   g_BackBuffer.bitmapInfo.bmiHeader.biPlanes = 1;
   g_BackBuffer.bitmapInfo.bmiHeader.biBitCount = 32;
   g_BackBuffer.bitmapInfo.bmiHeader.biCompression = BI_RGB;
@@ -286,6 +295,11 @@ LRESULT CALLBACK WindowProc(
       }
       else if (virtualKeyCode == 'L')
       {
+#if (ENABLE_FLIP_VERTICALLY > 0)
+        // the line function is top down so early out.
+        break;
+#endif
+
         // Draw some test Lines
 
         renderLine(0, 0, 400, 400, p_WindowHandle, BLUE);
@@ -299,7 +313,7 @@ LRESULT CALLBACK WindowProc(
       else if (virtualKeyCode == 'M')
       {
         // Draw the loaded Model
-        // NOTE(OM): The whole world is upside down ^^
+        // NOTE(OM): The y-coordinate is upside down ^^
         assert(g_Model->initialized);
         for (int i = 0; i < g_Model->nfaces(); i++) {
           std::vector<int> face = g_Model->face(i);
