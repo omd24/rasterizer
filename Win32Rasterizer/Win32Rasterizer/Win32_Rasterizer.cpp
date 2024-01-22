@@ -1,4 +1,5 @@
 ﻿// Win32_Rasterizer.cpp : This file contains the 'main' function. Program execution begins and ends there.
+// Description: a naiive rasterizer just using win32/winapi...
 //
 
 #define WIN32_LEAN_AND_MEAN
@@ -419,7 +420,7 @@ WinMain (
   assert(RegisterClass(&windowClass));
 
   HWND windowHandle = CreateWindowEx(0, windowClass.lpszClassName,
-    L"Cpu Rasterizer", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+    L"Win32 Rasterizer", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
     CW_USEDEFAULT, CW_USEDEFAULT, windowWidth, windowHeight,
     0, 0, p_Instance, 0);
   assert(windowHandle);
