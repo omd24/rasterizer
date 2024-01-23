@@ -5,15 +5,33 @@
 #include "utils.hpp"
 #include "Dx12_Wrapper.hpp"
 
+
+//---------------------------------------------------------------------------//
+// Helper functions
+//---------------------------------------------------------------------------//
+static int
+roundFloatToUInt(float p_Value)
+{
+  int result = (int)roundf(p_Value);
+  return(result);
+}
+
 //---------------------------------------------------------------------------//
 // Constants
 //---------------------------------------------------------------------------//
 
+// Uint32 colors can be used directly
 constexpr uint32_t WHITE =
   (255 << 24) |   // alpha
   (255 << 16) |   // blue
   (255 << 8)  |   // green
   (255 << 0);     // red
+
+constexpr uint32_t BLACK =
+  (255 << 24) |   // alpha
+  (0 << 16)   |   // blue
+  (0 << 8)    |   // green
+  (0 << 0);       // red
 
 constexpr uint32_t BLUE =
   (255 << 24) |   // alpha
@@ -25,10 +43,43 @@ constexpr uint32_t RED =
   (255 << 24) |   // alpha
   (0 << 16)   |   // blue
   (0 << 8)    |   // green
-  (255 << 0);       // red
+  (255 << 0);     // red
 
 //---------------------------------------------------------------------------//
-// Helper structs and functions
+// Float color values should be converted to Uint32 before using
+namespace Colors
+{
+struct ColorRGBA
+{
+  float r;
+  float g;
+  float b;
+  float a;
+
+  uint32_t convertToUint32 () const
+  {
+    uint32_t color32 =
+        ((roundFloatToUInt(a * 255.0f) << 24) |
+        (roundFloatToUInt(b * 255.0f) << 16) |
+        (roundFloatToUInt(g * 255.0f) << 8) |
+        (roundFloatToUInt(r * 255.0f) << 0));
+
+    return color32;
+  }
+
+  ColorRGBA operator *(float p_Scalar)     const
+  {
+    return { r * p_Scalar, g * p_Scalar, b * p_Scalar, a};
+  }
+};
+static constexpr ColorRGBA White = { 1.0f, 1.0f, 1.0f, 1.0f };
+static constexpr ColorRGBA Black = { 0.0f, 0.0f, 0.0f, 1.0f };
+static constexpr ColorRGBA Red = { 1.0f, 0.0f, 0.0f, 1.0f };
+static constexpr ColorRGBA Blue = { 0.0f, 0.0f, 1.0f, 1.0f };
+}
+
+//---------------------------------------------------------------------------//
+// Helper classes
 //---------------------------------------------------------------------------//
 
 template <typename T> struct Vector2
@@ -55,10 +106,16 @@ typedef Vector2<int>   Vec2I;
 template <typename T> struct Vector3 {
   union {
     struct { T x, y, z; };
-    T raw[3];
+    T raw[3]{};
   };
-  Vector3() : x(0), y(0), z(0) {}
-  Vector3(T p_X, T p_Y, T p_Z) : x(p_X), y(p_Y), z(p_Z) {}
+  Vector3() : x(0), y(0), z(0), raw{ 0, 0, 0 } {}
+  Vector3(T p_Raw[3]) : x(p_Raw[0]), y(p_Raw[1]), z(p_Raw[2]), raw{ p_Raw[0], p_Raw[1], p_Raw[2] } {}
+
+  // NOTE(OM): constexpr ctor is for allowing constant initialization. 
+  // it does not mean all instances will be literal / constant expressions:
+  // https://en.cppreference.com/w/cpp/language/constexpr
+  constexpr Vector3(T p_X, T p_Y, T p_Z) : x(p_X), y(p_Y), z(p_Z), raw{ p_X, p_Y, p_Z } {}
+  
   inline Vector3<T> operator +(const Vector3<T>& p_Vec) const 
   { 
     return Vector3<T>(x + p_Vec.x, y + p_Vec.y, z + p_Vec.z); 
@@ -75,8 +132,15 @@ template <typename T> struct Vector3 {
   { 
     return x * p_Vec.x + y * p_Vec.y + z * p_Vec.z; 
   }
-  float length() const { return std::sqrt(x * x + y * y + z * z); }
+  constexpr float length() const { return std::sqrt(x * x + y * y + z * z); }
   Vector3<T>& normalize() { *this = (*this) * (1 / length()); return *this; }
+
+  // constexpr version of normalize
+  template <typename T>
+  constexpr Vector3<T> normalized() const {
+    float len = length();
+    return Vector3<T>(x / len, y / len, z / len);
+  }
 
   static Vector3<T> cross (const Vector3<T>& p_Vec0, const Vector3<T>& p_Vec1)
   {
@@ -87,22 +151,13 @@ template <typename T> struct Vector3 {
     );
   }
 
-  static Vector3<T> dot (const Vector3<T>& p_Vec0, const Vector3<T>& p_Vec1)
+  static float dot (const Vector3<T>& p_Vec0, const Vector3<T>& p_Vec1)
   {
     return p_Vec0.x * p_Vec1.x + p_Vec0.y * p_Vec1.y + p_Vec0.z * p_Vec1.z;
   }
 };
 typedef Vector3<float> Vec3F;
 typedef Vector3<int>   Vec3I;
-
-//---------------------------------------------------------------------------//
-
-static int
-roundFloatToUInt(float p_Value)
-{
-  int result = (int)roundf(p_Value);
-  return(result);
-}
 
 //---------------------------------------------------------------------------//
 // Rendering functions
@@ -123,7 +178,7 @@ colorPixel (int p_X, int p_Y, uint32_t p_Color)
 }
 //---------------------------------------------------------------------------//
 static void
-clearBuffer()
+clearBuffer(uint32_t p_Color)
 {
   uint8_t* row = (uint8_t*)Dx12Wrapper::ms_BackbufferMemory;
 
@@ -131,10 +186,7 @@ clearBuffer()
     uint32_t* pixel = (uint32_t*)row;
     for (int x = 0; x < Dx12Wrapper::ms_Width; ++x)
     {
-
-      // clear to white
-      *pixel = WHITE;
-
+      *pixel = p_Color;
       ++pixel;
     }
 
@@ -224,7 +276,7 @@ Vec3F barycentric(Vec2I p_TriangleVertices[3], Vec2I p_Point) {
   if (std::abs(u.z) < 1) return Vec3F(-1, 1, 1);
   return Vec3F(1.f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
 }
-
+//---------------------------------------------------------------------------//
 void drawTriangle(Vec2I p_TriangleVertices[3], uint32_t p_Color)
 {
   int width = Dx12Wrapper::ms_Width;
@@ -232,7 +284,8 @@ void drawTriangle(Vec2I p_TriangleVertices[3], uint32_t p_Color)
   Vec2I bboxmin(width - 1, height - 1);
   Vec2I bboxmax(0, 0);
   Vec2I clamp(width - 1, height - 1);
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 3; i++)
+  {
     bboxmin.x = std::max(0, std::min(bboxmin.x, p_TriangleVertices[i].x));
     bboxmin.y = std::max(0, std::min(bboxmin.y, p_TriangleVertices[i].y));
 
@@ -240,8 +293,10 @@ void drawTriangle(Vec2I p_TriangleVertices[3], uint32_t p_Color)
     bboxmax.y = std::min(clamp.y, std::max(bboxmax.y, p_TriangleVertices[i].y));
   }
   Vec2I pixel;
-  for (pixel.x = bboxmin.x; pixel.x <= bboxmax.x; pixel.x++) {
-    for (pixel.y = bboxmin.y; pixel.y <= bboxmax.y; pixel.y++) {
+  for (pixel.x = bboxmin.x; pixel.x <= bboxmax.x; pixel.x++)
+  {
+    for (pixel.y = bboxmin.y; pixel.y <= bboxmax.y; pixel.y++)
+    {
       Vec3F bc = barycentric(p_TriangleVertices, pixel);
       if (bc.x < 0 || bc.y < 0 || bc.z < 0) continue;
       colorPixel(pixel.x, pixel.y, p_Color);
@@ -276,15 +331,16 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
         // Render wireframe model:
         g_FlipVertically = true;
 
-        for (int i = 0; i < g_Model->nfaces(); i++) {
+        for (int i = 0; i < g_Model->nfaces(); i++)
+        {
           std::vector<int> face = g_Model->face(i);
           for (int j = 0; j < 3; j++) {
-            Vec3f v0 = g_Model->vert(face[j]);
-            Vec3f v1 = g_Model->vert(face[(j + 1) % 3]);
-            int x0 = static_cast<int>((v0.x + 1.0f) * Dx12Wrapper::ms_Width / 2);
-            int y0 = static_cast<int>((v0.y + 1.0f) * Dx12Wrapper::ms_Height / 2);
-            int x1 = static_cast<int>((v1.x + 1.0f) * Dx12Wrapper::ms_Width / 2);
-            int y1 = static_cast<int>((v1.y + 1.0f) * Dx12Wrapper::ms_Height / 2);
+            Vec3F v0 = Vec3F(g_Model->vert(face[j]).raw);
+            Vec3F v1 = Vec3F(g_Model->vert(face[(j + 1) % 3]).raw);
+            int x0 = roundFloatToUInt((v0.x + 1.0f) * Dx12Wrapper::ms_Width / 2);
+            int y0 = roundFloatToUInt((v0.y + 1.0f) * Dx12Wrapper::ms_Height / 2);
+            int x1 = roundFloatToUInt((v1.x + 1.0f) * Dx12Wrapper::ms_Width / 2);
+            int y1 = roundFloatToUInt((v1.y + 1.0f) * Dx12Wrapper::ms_Height / 2);
             drawLineSimple(x0, y0, x1, y1, WHITE);
           }
         }
@@ -305,7 +361,7 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
       }
       else if ('C' == virtualKeyCode)
       {
-        clearBuffer();
+        clearBuffer(BLACK);
       }
       else if ('T' == virtualKeyCode)
       {
@@ -325,6 +381,36 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
         drawLineSimple(13, 20, 80, 40, WHITE);
         drawLineSimple(20, 13, 40, 80, RED);
         drawLineSimple(80, 40, 13, 20, RED);
+      }
+      else if ('S' == virtualKeyCode)
+      {
+        // shade the model with flat color and lamber cosine law
+        g_FlipVertically = true;
+
+        static constexpr Vec3F lightDir = Vec3F(0.0f, 0.0f, -1.0f);
+
+        for (int i = 0; i < g_Model->nfaces(); i++) {
+          std::vector<int> face = g_Model->face(i);
+          Vec2I posSS[3];
+          Vec3F posWS[3];
+          for (int j = 0; j < 3; j++)
+          {
+            Vec3F v = Vec3F(g_Model->vert(face[j]).raw);
+            posSS[j] = Vec2I(
+              roundFloatToUInt((v.x + 1.0f) * Dx12Wrapper::ms_Width / 2.0f),
+              roundFloatToUInt((v.y + 1.0f) * Dx12Wrapper::ms_Height / 2.0f));
+            posWS[j] = v;
+          }
+          Vec3F n = Vec3F::cross(posWS[2] - posWS[0], posWS[1] - posWS[0]);
+          n.normalize();
+          float intensity = Vec3F::dot(n, lightDir); // dot product: Lambert cosine law
+          if (intensity > 0)
+          {
+            drawTriangle(posSS, (Colors::White * intensity).convertToUint32());
+          }
+        }
+
+        g_FlipVertically = false;
       }
     }
   }
