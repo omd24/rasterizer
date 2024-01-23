@@ -21,6 +21,11 @@ constexpr uint32_t BLUE =
   (0 << 8)    |   // green
   (0 << 0);       // red
 
+constexpr uint32_t RED =
+  (255 << 24) |   // alpha
+  (0 << 16)   |   // blue
+  (0 << 8)    |   // green
+  (255 << 0);       // red
 
 //---------------------------------------------------------------------------//
 // Rendering functions
@@ -120,7 +125,7 @@ drawLineSimple(int p_X0, int p_Y0, int p_X1, int p_Y1, uint32_t p_Color)
   }
   for (int x = p_X0; x <= p_X1; x++) {
     float t = (x - p_X0) / (float)(p_X1 - p_X0);
-    int y = p_Y0 * (1. - t) + p_Y1 * t;
+    int y = (int)roundf(p_Y0 * (1.0f - t) + p_Y1 * t);
     if (steep) {
       colorPixel(y, x, p_Color);
     }
@@ -174,11 +179,11 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
       }
       else if ('T' == virtualKeyCode)
       {
-        drawLineSimple(50, 50, 100, 100, WHITE);
+        drawLineSimple(50, 50, 100, 100, RED);
         drawLineSimple(50, 60, 100, 40, BLUE);
         drawLineSimple(50, 400, 100, 100, BLUE);
 
-        drawLineSimple(13, 20, 180, 40, WHITE);
+        drawLineSimple(13, 20, 180, 40, RED);
         drawLineSimple(13, 20, 140, 80, BLUE);
         drawLineSimple(180, 40, 140, 80, BLUE);
       }
@@ -198,6 +203,8 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
   // Handle any messages the switch statement didn't.
   return DefWindowProc(p_Wnd, p_Message, p_WParam, p_LParam);
 }
+//---------------------------------------------------------------------------//
+// Main function
 //---------------------------------------------------------------------------//
 _Use_decl_annotations_
 int WINAPI 
