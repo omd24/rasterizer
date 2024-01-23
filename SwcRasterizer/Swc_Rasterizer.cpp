@@ -28,6 +28,17 @@ constexpr uint32_t RED =
   (255 << 0);       // red
 
 //---------------------------------------------------------------------------//
+// Helper functions
+//---------------------------------------------------------------------------//
+
+static int
+roundFloatToUInt(float p_Value)
+{
+  int result = (int)roundf(p_Value);
+  return(result);
+}
+
+//---------------------------------------------------------------------------//
 // Rendering functions
 //---------------------------------------------------------------------------//
 static void
@@ -124,8 +135,12 @@ drawLineSimple(int p_X0, int p_Y0, int p_X1, int p_Y1, uint32_t p_Color)
     std::swap(p_Y0, p_Y1);
   }
   for (int x = p_X0; x <= p_X1; x++) {
+
+    // interpolate y based on x ratio:
     float t = (x - p_X0) / (float)(p_X1 - p_X0);
-    int y = (int)roundf(p_Y0 * (1.0f - t) + p_Y1 * t);
+    float yLerped = p_Y0 * (1.0f - t) + p_Y1 * t;
+    int y = roundFloatToUInt(yLerped);
+
     if (steep) {
       colorPixel(y, x, p_Color);
     }
