@@ -137,6 +137,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\Externals\tinyrenderer\model.cpp" />
     <ClCompile Include="Swc_Rasterizer.cpp" />
   </ItemGroup>
   <ItemGroup>

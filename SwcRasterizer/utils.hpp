@@ -9,10 +9,15 @@
 #include <cstdlib>
 #include <algorithm>
 
+#include <tinyrenderer/model.h>
+
 //---------------------------------------------------------------------------//
 // Global variables:
 //---------------------------------------------------------------------------//
 HWND g_Window;
+Model* g_Model;
+
+bool g_FlipVertically;
 
 //---------------------------------------------------------------------------//
 // Helper functions:

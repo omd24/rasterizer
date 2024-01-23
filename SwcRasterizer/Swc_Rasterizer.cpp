@@ -6,10 +6,8 @@
 #include "Dx12_Wrapper.hpp"
 
 //---------------------------------------------------------------------------//
-// Constants and macros
+// Constants
 //---------------------------------------------------------------------------//
-
-#define ENABLE_VERTICAL_FLIP 0
 
 constexpr uint32_t WHITE =
   (255 << 24) |   // alpha
@@ -33,7 +31,7 @@ constexpr uint32_t RED =
 // Helper structs and functions
 //---------------------------------------------------------------------------//
 
-template <typename T> struct Vec2
+template <typename T> struct Vector2
 {
   union {
     struct { T u, v; };
@@ -41,55 +39,61 @@ template <typename T> struct Vec2
     T raw[2];
   };
 
-  Vec2() : u(0), v(0) {}
-  Vec2(T p_X, T p_Y) : x(p_X), y(p_Y) {}
-  inline Vec2<T> operator +(const Vec2<T>& p_V) const { return Vec2<T>(x + p_V.x, y + p_V.y); }
-  inline Vec2<T> operator -(const Vec2<T>& p_V) const { return Vec2<T>(x - p_V.x, y - p_V.y); }
-  inline Vec2<T> operator *(float p_Scalar)     const 
+  Vector2() : u(0), v(0) {}
+  Vector2(T p_X, T p_Y) : x(p_X), y(p_Y) {}
+  inline Vector2<T> operator +(const Vector2<T>& p_V) const { return Vector2<T>(x + p_V.x, y + p_V.y); }
+  inline Vector2<T> operator -(const Vector2<T>& p_V) const { return Vector2<T>(x - p_V.x, y - p_V.y); }
+  inline Vector2<T> operator *(float p_Scalar)     const 
   { 
-    return Vec2<T>(static_cast<T>(x * p_Scalar), static_cast<T>(y * p_Scalar)); 
+    return Vector2<T>(static_cast<T>(x * p_Scalar), static_cast<T>(y * p_Scalar)); 
   }
 };
-typedef Vec2<float> Vec2F;
-typedef Vec2<int>   Vec2I;
+typedef Vector2<float> Vec2F;
+typedef Vector2<int>   Vec2I;
 
 //---------------------------------------------------------------------------//
-template <typename T> struct Vec3 {
+template <typename T> struct Vector3 {
   union {
     struct { T x, y, z; };
     T raw[3];
   };
-  Vec3() : x(0), y(0), z(0) {}
-  Vec3(T p_X, T p_Y, T p_Z) : x(p_X), y(p_Y), z(p_Z) {}
-  inline Vec3<T> operator +(const Vec3<T>& p_Vec) const 
+  Vector3() : x(0), y(0), z(0) {}
+  Vector3(T p_X, T p_Y, T p_Z) : x(p_X), y(p_Y), z(p_Z) {}
+  inline Vector3<T> operator +(const Vector3<T>& p_Vec) const 
   { 
-    return Vec3<T>(x + p_Vec.x, y + p_Vec.y, z + p_Vec.z); 
+    return Vector3<T>(x + p_Vec.x, y + p_Vec.y, z + p_Vec.z); 
   }
-  inline Vec3<T> operator -(const Vec3<T>& p_Vec) const 
+  inline Vector3<T> operator -(const Vector3<T>& p_Vec) const 
   { 
-    return Vec3<T>(x - p_Vec.x, y - p_Vec.y, z - p_Vec.z); 
+    return Vector3<T>(x - p_Vec.x, y - p_Vec.y, z - p_Vec.z); 
   }
-  inline Vec3<T> operator *(float p_Val) const 
+  inline Vector3<T> operator *(float p_Val) const 
   { 
-    return Vec3<T>(x * p_Val, y * p_Val, z * p_Val); 
+    return Vector3<T>(x * p_Val, y * p_Val, z * p_Val); 
   }
-  inline T operator *(const Vec3<T>& p_Vec) const 
+  inline T operator *(const Vector3<T>& p_Vec) const 
   { 
     return x * p_Vec.x + y * p_Vec.y + z * p_Vec.z; 
   }
-  float norm() const { return std::sqrt(x * x + y * y + z * z); }
+  float length() const { return std::sqrt(x * x + y * y + z * z); }
+  Vector3<T>& normalize() { *this = (*this) * (1 / length()); return *this; }
 
-  static Vec3<T> cross (const Vec3<T>& p_Vec0, const Vec3<T>& p_Vec1)
+  static Vector3<T> cross (const Vector3<T>& p_Vec0, const Vector3<T>& p_Vec1)
   {
-    return Vec3<T>(
+    return Vector3<T>(
       p_Vec0.y * p_Vec1.z - p_Vec0.z * p_Vec1.y,
       p_Vec0.z * p_Vec1.x - p_Vec0.x * p_Vec1.z,
       p_Vec0.x * p_Vec1.y - p_Vec0.y * p_Vec1.x
     );
   }
+
+  static Vector3<T> dot (const Vector3<T>& p_Vec0, const Vector3<T>& p_Vec1)
+  {
+    return p_Vec0.x * p_Vec1.x + p_Vec0.y * p_Vec1.y + p_Vec0.z * p_Vec1.z;
+  }
 };
-typedef Vec3<float> Vec3F;
-typedef Vec3<int>   Vec3I;
+typedef Vector3<float> Vec3F;
+typedef Vector3<int>   Vec3I;
 
 //---------------------------------------------------------------------------//
 
@@ -106,9 +110,8 @@ roundFloatToUInt(float p_Value)
 static void
 colorPixel (int p_X, int p_Y, uint32_t p_Color)
 {
-#if (ENABLE_VERTICAL_FLIP > 0)
-  p_Y = 512 - p_Y;
-#endif
+  if (g_FlipVertically)
+    p_Y = Dx12Wrapper::ms_Height - p_Y;
 
   if (p_X < 0 || p_X >= Dx12Wrapper::ms_Width 
     || p_Y < 0 || p_Y >= Dx12Wrapper::ms_Height) {
@@ -137,21 +140,6 @@ clearBuffer()
 
     // move to next rowPitch:
     row += Dx12Wrapper::ms_Width * Dx12Wrapper::ms_BytePerPixel;
-  }
-}
-//---------------------------------------------------------------------------//
-static void
-drawCheckerboard()
-{
-  for (int y = 0; y < Dx12Wrapper::ms_Height; ++y) {
-    for (int x = 0; x < Dx12Wrapper::ms_Width; ++x)
-    {
-      // checkerboard
-      if (x % 2 == 0 && y % 2 == 0)
-        colorPixel(x, y, WHITE);
-      else
-        colorPixel(x, y, BLUE);
-    }
   }
 }
 //---------------------------------------------------------------------------//
@@ -285,7 +273,23 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
     {
       if ('W' == virtualKeyCode)
       {
-        clearBuffer();
+        // Render wireframe model:
+        g_FlipVertically = true;
+
+        for (int i = 0; i < g_Model->nfaces(); i++) {
+          std::vector<int> face = g_Model->face(i);
+          for (int j = 0; j < 3; j++) {
+            Vec3f v0 = g_Model->vert(face[j]);
+            Vec3f v1 = g_Model->vert(face[(j + 1) % 3]);
+            int x0 = static_cast<int>((v0.x + 1.0f) * Dx12Wrapper::ms_Width / 2);
+            int y0 = static_cast<int>((v0.y + 1.0f) * Dx12Wrapper::ms_Height / 2);
+            int x1 = static_cast<int>((v1.x + 1.0f) * Dx12Wrapper::ms_Width / 2);
+            int y1 = static_cast<int>((v1.y + 1.0f) * Dx12Wrapper::ms_Height / 2);
+            drawLineSimple(x0, y0, x1, y1, WHITE);
+          }
+        }
+
+        g_FlipVertically = false;
       }
       else if ('H' == virtualKeyCode)
       {
@@ -301,9 +305,9 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
       }
       else if ('C' == virtualKeyCode)
       {
-        drawCheckerboard();
+        clearBuffer();
       }
-      else if ('R' == virtualKeyCode)
+      else if ('T' == virtualKeyCode)
       {
         Vec2I t0[3] = { Vec2I(10, 70),   Vec2I(50, 160),  Vec2I(70, 80) };
         Vec2I t1[3] = { Vec2I(180, 50),  Vec2I(150, 1),   Vec2I(70, 180) };
@@ -312,15 +316,11 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
         drawTriangle(t1, WHITE);
         drawTriangle(t2, BLUE);
       }
-      else if ('T' == virtualKeyCode)
+      else if ('L' == virtualKeyCode)
       {
         drawLineSimple(50, 50, 100, 100, RED);
         drawLineSimple(50, 60, 100, 40, BLUE);
         drawLineSimple(50, 400, 100, 100, BLUE);
-
-        drawLineSimple(13, 20, 180, 40, RED);
-        drawLineSimple(13, 20, 140, 80, BLUE);
-        drawLineSimple(180, 40, 140, 80, BLUE);
 
         drawLineSimple(13, 20, 80, 40, WHITE);
         drawLineSimple(20, 13, 40, 80, RED);
@@ -377,6 +377,11 @@ WinMain(HINSTANCE p_Instance, HINSTANCE, LPSTR, int p_CmdShow)
     nullptr,        // We aren't using menus.
     p_Instance,
     0);
+
+  // Load wireframe model:
+  g_Model = new Model("../Assets/obj/african_head/african_head.obj");
+  assert(g_Model->initialized);
+  g_FlipVertically = false;
 
   Dx12Wrapper::onInit(windowWidth, windowHeight);
 
