@@ -1,11 +1,13 @@
 #pragma once
 
+#define NOMINMAX // suppress the min and max definitions in Windef.h
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
 #include <string>
 #include <cassert>
 #include <cstdlib>
+#include <algorithm>
 
 //---------------------------------------------------------------------------//
 // Global variables:

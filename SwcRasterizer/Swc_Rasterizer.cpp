@@ -6,8 +6,10 @@
 #include "Dx12_Wrapper.hpp"
 
 //---------------------------------------------------------------------------//
-// Constants
+// Constants and macros
 //---------------------------------------------------------------------------//
+
+#define ENABLE_VERTICAL_FLIP 0
 
 constexpr uint32_t WHITE =
   (255 << 24) |   // alpha
@@ -28,7 +30,67 @@ constexpr uint32_t RED =
   (255 << 0);       // red
 
 //---------------------------------------------------------------------------//
-// Helper functions
+// Helper structs and functions
+//---------------------------------------------------------------------------//
+
+template <typename T> struct Vec2
+{
+  union {
+    struct { T u, v; };
+    struct { T x, y; };
+    T raw[2];
+  };
+
+  Vec2() : u(0), v(0) {}
+  Vec2(T p_X, T p_Y) : x(p_X), y(p_Y) {}
+  inline Vec2<T> operator +(const Vec2<T>& p_V) const { return Vec2<T>(x + p_V.x, y + p_V.y); }
+  inline Vec2<T> operator -(const Vec2<T>& p_V) const { return Vec2<T>(x - p_V.x, y - p_V.y); }
+  inline Vec2<T> operator *(float p_Scalar)     const 
+  { 
+    return Vec2<T>(static_cast<T>(x * p_Scalar), static_cast<T>(y * p_Scalar)); 
+  }
+};
+typedef Vec2<float> Vec2F;
+typedef Vec2<int>   Vec2I;
+
+//---------------------------------------------------------------------------//
+template <typename T> struct Vec3 {
+  union {
+    struct { T x, y, z; };
+    T raw[3];
+  };
+  Vec3() : x(0), y(0), z(0) {}
+  Vec3(T p_X, T p_Y, T p_Z) : x(p_X), y(p_Y), z(p_Z) {}
+  inline Vec3<T> operator +(const Vec3<T>& p_Vec) const 
+  { 
+    return Vec3<T>(x + p_Vec.x, y + p_Vec.y, z + p_Vec.z); 
+  }
+  inline Vec3<T> operator -(const Vec3<T>& p_Vec) const 
+  { 
+    return Vec3<T>(x - p_Vec.x, y - p_Vec.y, z - p_Vec.z); 
+  }
+  inline Vec3<T> operator *(float p_Val) const 
+  { 
+    return Vec3<T>(x * p_Val, y * p_Val, z * p_Val); 
+  }
+  inline T operator *(const Vec3<T>& p_Vec) const 
+  { 
+    return x * p_Vec.x + y * p_Vec.y + z * p_Vec.z; 
+  }
+  float norm() const { return std::sqrt(x * x + y * y + z * z); }
+
+  static Vec3<T> cross (const Vec3<T>& p_Vec0, const Vec3<T>& p_Vec1)
+  {
+    return Vec3<T>(
+      p_Vec0.y * p_Vec1.z - p_Vec0.z * p_Vec1.y,
+      p_Vec0.z * p_Vec1.x - p_Vec0.x * p_Vec1.z,
+      p_Vec0.x * p_Vec1.y - p_Vec0.y * p_Vec1.x
+    );
+  }
+};
+typedef Vec3<float> Vec3F;
+typedef Vec3<int>   Vec3I;
+
 //---------------------------------------------------------------------------//
 
 static int
@@ -44,6 +106,10 @@ roundFloatToUInt(float p_Value)
 static void
 colorPixel (int p_X, int p_Y, uint32_t p_Color)
 {
+#if (ENABLE_VERTICAL_FLIP > 0)
+  p_Y = 512 - p_Y;
+#endif
+
   if (p_X < 0 || p_X >= Dx12Wrapper::ms_Width 
     || p_Y < 0 || p_Y >= Dx12Wrapper::ms_Height) {
     return;
@@ -145,7 +211,52 @@ drawLineSimple(int p_X0, int p_Y0, int p_X1, int p_Y1, uint32_t p_Color)
       colorPixel(y, x, p_Color);
     }
     else {
-      colorPixel(y, x, p_Color);
+      colorPixel(x, y, p_Color);
+    }
+  }
+}
+//---------------------------------------------------------------------------//
+// https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
+Vec3F barycentric(Vec2I p_TriangleVertices[3], Vec2I p_Point) {
+  Vec3F vec0 = Vec3F(
+    (float)p_TriangleVertices[2].x - p_TriangleVertices[0].x,
+    (float)p_TriangleVertices[1].x - p_TriangleVertices[0].x,
+    (float)p_TriangleVertices[0].x - p_Point.x);
+    
+  Vec3F vec1 = Vec3F(
+    (float)p_TriangleVertices[2].y - p_TriangleVertices[0].y, 
+    (float)p_TriangleVertices[1].y - p_TriangleVertices[0].y, 
+    (float)p_TriangleVertices[0].y - p_Point.y);
+
+  Vec3F u = Vec3F::cross(vec0, vec1);
+
+  /* `p_TriangleVertices` and `p_Point` has integer value as coordinates
+     so `abs(u[2])` < 1 means `u[2]` is 0, that means
+     triangle is degenerate, in this case return something with negative coordinates */
+  if (std::abs(u.z) < 1) return Vec3F(-1, 1, 1);
+  return Vec3F(1.f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
+}
+
+void drawTriangle(Vec2I p_TriangleVertices[3], uint32_t p_Color)
+{
+  int width = Dx12Wrapper::ms_Width;
+  int height = Dx12Wrapper::ms_Height;
+  Vec2I bboxmin(width - 1, height - 1);
+  Vec2I bboxmax(0, 0);
+  Vec2I clamp(width - 1, height - 1);
+  for (int i = 0; i < 3; i++) {
+    bboxmin.x = std::max(0, std::min(bboxmin.x, p_TriangleVertices[i].x));
+    bboxmin.y = std::max(0, std::min(bboxmin.y, p_TriangleVertices[i].y));
+
+    bboxmax.x = std::min(clamp.x, std::max(bboxmax.x, p_TriangleVertices[i].x));
+    bboxmax.y = std::min(clamp.y, std::max(bboxmax.y, p_TriangleVertices[i].y));
+  }
+  Vec2I pixel;
+  for (pixel.x = bboxmin.x; pixel.x <= bboxmax.x; pixel.x++) {
+    for (pixel.y = bboxmin.y; pixel.y <= bboxmax.y; pixel.y++) {
+      Vec3F bc = barycentric(p_TriangleVertices, pixel);
+      if (bc.x < 0 || bc.y < 0 || bc.z < 0) continue;
+      colorPixel(pixel.x, pixel.y, p_Color);
     }
   }
 }
@@ -192,6 +303,15 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
       {
         drawCheckerboard();
       }
+      else if ('R' == virtualKeyCode)
+      {
+        Vec2I t0[3] = { Vec2I(10, 70),   Vec2I(50, 160),  Vec2I(70, 80) };
+        Vec2I t1[3] = { Vec2I(180, 50),  Vec2I(150, 1),   Vec2I(70, 180) };
+        Vec2I t2[3] = { Vec2I(180, 150), Vec2I(120, 160), Vec2I(130, 180) };
+        drawTriangle(t0, RED);
+        drawTriangle(t1, WHITE);
+        drawTriangle(t2, BLUE);
+      }
       else if ('T' == virtualKeyCode)
       {
         drawLineSimple(50, 50, 100, 100, RED);
@@ -201,6 +321,10 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
         drawLineSimple(13, 20, 180, 40, RED);
         drawLineSimple(13, 20, 140, 80, BLUE);
         drawLineSimple(180, 40, 140, 80, BLUE);
+
+        drawLineSimple(13, 20, 80, 40, WHITE);
+        drawLineSimple(20, 13, 40, 80, RED);
+        drawLineSimple(80, 40, 13, 20, RED);
       }
     }
   }
