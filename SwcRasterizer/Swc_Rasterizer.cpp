@@ -1,4 +1,4 @@
-// Swc_Rasterizer.cpp : This file contains the 'main' function.
+﻿// Swc_Rasterizer.cpp : This file contains the 'main' function.
 // Description: a simple rasterizer just using swapchain (SWC) backbuffer
 //
 
@@ -8,6 +8,7 @@
 //---------------------------------------------------------------------------//
 // Constants
 //---------------------------------------------------------------------------//
+
 constexpr uint32_t WHITE =
   (255 << 24) |   // alpha
   (255 << 16) |   // blue
@@ -23,6 +24,18 @@ constexpr uint32_t BLUE =
 
 //---------------------------------------------------------------------------//
 // Rendering functions
+//---------------------------------------------------------------------------//
+static void
+colorPixel (int p_X, int p_Y, uint32_t p_Color)
+{
+  if (p_X < 0 || p_X >= Dx12Wrapper::ms_Width 
+    || p_Y < 0 || p_Y >= Dx12Wrapper::ms_Height) {
+    return;
+  }
+
+  uint32_t* buffer = (uint32_t*)Dx12Wrapper::ms_BackbufferMemory;
+  buffer[p_Y * Dx12Wrapper::ms_Width + p_X] = p_Color;
+}
 //---------------------------------------------------------------------------//
 static void
 clearBuffer()
@@ -48,89 +61,74 @@ clearBuffer()
 static void
 drawCheckerboard()
 {
-  uint8_t* row = (uint8_t*)Dx12Wrapper::ms_BackbufferMemory;
-
   for (int y = 0; y < Dx12Wrapper::ms_Height; ++y) {
-    uint32_t* pixel = (uint32_t*)row;
     for (int x = 0; x < Dx12Wrapper::ms_Width; ++x)
     {
       // checkerboard
       if (x % 2 == 0 && y % 2 == 0)
-        *pixel = WHITE;
+        colorPixel(x, y, WHITE);
       else
-        *pixel = BLUE;
-
-      ++pixel;
+        colorPixel(x, y, BLUE);
     }
-
-    // move to next rowPitch:
-    row += Dx12Wrapper::ms_Width * Dx12Wrapper::ms_BytePerPixel;
   }
 }
 //---------------------------------------------------------------------------//
 static void
 drawHorizonatalLine(const int p_LineY)
 {
-  uint8_t* row = (uint8_t*)Dx12Wrapper::ms_BackbufferMemory;
-
   for (int y = 0; y < Dx12Wrapper::ms_Height; ++y) {
-    uint32_t* pixel = (uint32_t*)row;
     for (int x = 0; x < Dx12Wrapper::ms_Width; ++x)
     {
       if (p_LineY == y)
-        *pixel = BLUE;
+        colorPixel(x, y, BLUE);
       else
-        *pixel = WHITE;
-
-      ++pixel;
+        colorPixel(x, y, WHITE);
     }
-
-    // move to next rowPitch:
-    row += Dx12Wrapper::ms_Width * Dx12Wrapper::ms_BytePerPixel;
   }
 }
 //---------------------------------------------------------------------------//
 static void
 drawVerticalLine(const int p_LineX)
 {
-  uint8_t* row = (uint8_t*)Dx12Wrapper::ms_BackbufferMemory;
-
   for (int y = 0; y < Dx12Wrapper::ms_Height; ++y) {
-    uint32_t* pixel = (uint32_t*)row;
     for (int x = 0; x < Dx12Wrapper::ms_Width; ++x)
     {
       if (p_LineX == x)
-        *pixel = BLUE;
+        colorPixel(x, y, BLUE);
       else
-        *pixel = WHITE;
-
-      ++pixel;
+        colorPixel(x, y, WHITE);
     }
-
-    // move to next rowPitch:
-    row += Dx12Wrapper::ms_Width * Dx12Wrapper::ms_BytePerPixel;
   }
 }
 //---------------------------------------------------------------------------//
 static void
-drawTest()
+drawLineSimple(int p_X0, int p_Y0, int p_X1, int p_Y1, uint32_t p_Color)
 {
-  uint8_t* row = (uint8_t*)Dx12Wrapper::ms_BackbufferMemory;
-
-  for (int y = 0; y < Dx12Wrapper::ms_Height; ++y) {
-    uint32_t* pixel = (uint32_t*)row;
-    for (int x = 0; x < Dx12Wrapper::ms_Width; ++x)
-    {
-      *pixel = BLUE;
-
-      ++pixel;
+  // if the line is steep, we transpose the image
+  bool steep = false;
+  if (std::abs(p_X0 - p_X1) < std::abs(p_Y0 - p_Y1))
+  {
+    std::swap(p_X0, p_Y0);
+    std::swap(p_X1, p_Y1);
+    steep = true;
+  }
+  // make it left−to−right
+  if (p_X0 > p_X1)
+  {
+    std::swap(p_X0, p_X1);
+    std::swap(p_Y0, p_Y1);
+  }
+  for (int x = p_X0; x <= p_X1; x++) {
+    float t = (x - p_X0) / (float)(p_X1 - p_X0);
+    int y = p_Y0 * (1. - t) + p_Y1 * t;
+    if (steep) {
+      colorPixel(y, x, p_Color);
     }
-
-    // move to next rowPitch:
-    row += Dx12Wrapper::ms_Width * Dx12Wrapper::ms_BytePerPixel;
+    else {
+      colorPixel(y, x, p_Color);
+    }
   }
 }
-
 //---------------------------------------------------------------------------//
 // Message handler
 //---------------------------------------------------------------------------//
@@ -161,13 +159,13 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
       else if ('H' == virtualKeyCode)
       {
         static uint8_t y = 0;
-        y++;
+        y += 20;
         drawHorizonatalLine(y);
       }
       else if ('V' == virtualKeyCode)
       {
         static uint8_t x = 0;
-        x++;
+        x += 20;
         drawVerticalLine(x);
       }
       else if ('C' == virtualKeyCode)
@@ -176,7 +174,13 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
       }
       else if ('T' == virtualKeyCode)
       {
-        drawTest();
+        drawLineSimple(50, 50, 100, 100, WHITE);
+        drawLineSimple(50, 60, 100, 40, BLUE);
+        drawLineSimple(50, 400, 100, 100, BLUE);
+
+        drawLineSimple(13, 20, 180, 40, WHITE);
+        drawLineSimple(13, 20, 140, 80, BLUE);
+        drawLineSimple(180, 40, 140, 80, BLUE);
       }
     }
   }
@@ -209,6 +213,7 @@ WinMain(HINSTANCE p_Instance, HINSTANCE, LPSTR, int p_CmdShow)
   windowClass.lpszClassName = L"DXSampleClass";
   RegisterClassEx(&windowClass);
 
+  // TODO(OM): Check if it works for different window sizes (considering d3d alignment rules):
   int windowWidth = 512;
   int windowHeight = 512;
 
