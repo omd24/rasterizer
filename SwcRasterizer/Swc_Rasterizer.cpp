@@ -9,6 +9,12 @@
 //---------------------------------------------------------------------------//
 // Helper functions
 //---------------------------------------------------------------------------//
+static float
+rndf()
+{
+  return (float)rand() / (float)RAND_MAX;
+}
+//---------------------------------------------------------------------------//
 static int
 roundFloatToUInt(float p_Value)
 {
@@ -257,7 +263,8 @@ drawLineSimple(int p_X0, int p_Y0, int p_X1, int p_Y1, uint32_t p_Color)
 }
 //---------------------------------------------------------------------------//
 // https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
-Vec3F barycentric(Vec2I p_TriangleVertices[3], Vec2I p_Point) {
+static Vec3F 
+barycentric(Vec3F p_TriangleVertices[3], Vec3F p_Point) {
   Vec3F vec0 = Vec3F(
     (float)p_TriangleVertices[2].x - p_TriangleVertices[0].x,
     (float)p_TriangleVertices[1].x - p_TriangleVertices[0].x,
@@ -270,39 +277,74 @@ Vec3F barycentric(Vec2I p_TriangleVertices[3], Vec2I p_Point) {
 
   Vec3F u = Vec3F::cross(vec0, vec1);
 
-  /* `p_TriangleVertices` and `p_Point` has integer value as coordinates
-     so `abs(u[2])` < 1 means `u[2]` is 0, that means
-     triangle is degenerate, in this case return something with negative coordinates */
+  /* 
+    `p_TriangleVertices` and `p_Point` has integer value as coordinates
+    so `abs(u[2])` < 1 means `u[2]` is 0, that means
+    triangle is degenerate, in this case return something with negative coordinates
+  */
   if (std::abs(u.z) < 1) return Vec3F(-1, 1, 1);
-  return Vec3F(1.f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
+
+  // Again dont forget that u[2] is integer.
+  // If it is zero then triangle ABC is degenerate
+  if (std::abs(u.z) > 1e-2) // 
+    return Vec3F(1.f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
+
+  // return smth with negative by default
+  return Vec3F(-1, 1, 1);
 }
 //---------------------------------------------------------------------------//
-void drawTriangle(Vec2I p_TriangleVertices[3], uint32_t p_Color)
+static void
+drawTriangle(Vec3F p_TriangleVertices[3], uint32_t p_Color, bool p_DepthTest)
 {
   int width = Dx12Wrapper::ms_Width;
   int height = Dx12Wrapper::ms_Height;
-  Vec2I bboxmin(width - 1, height - 1);
-  Vec2I bboxmax(0, 0);
-  Vec2I clamp(width - 1, height - 1);
-  for (int i = 0; i < 3; i++)
-  {
-    bboxmin.x = std::max(0, std::min(bboxmin.x, p_TriangleVertices[i].x));
-    bboxmin.y = std::max(0, std::min(bboxmin.y, p_TriangleVertices[i].y));
-
-    bboxmax.x = std::min(clamp.x, std::max(bboxmax.x, p_TriangleVertices[i].x));
-    bboxmax.y = std::min(clamp.y, std::max(bboxmax.y, p_TriangleVertices[i].y));
+  Vec2F bboxmin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+  Vec2F bboxmax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
+  Vec2F clamp(float(width - 1), float(height - 1));
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 2; j++) {
+      bboxmin.raw[j] = std::max(0.f, std::min(bboxmin.raw[j], p_TriangleVertices[i].raw[j]));
+      bboxmax.raw[j] = std::min(clamp.raw[j], std::max(bboxmax.raw[j], p_TriangleVertices[i].raw[j]));
+    }
   }
-  Vec2I pixel;
+  Vec3F pixel;
   for (pixel.x = bboxmin.x; pixel.x <= bboxmax.x; pixel.x++)
   {
     for (pixel.y = bboxmin.y; pixel.y <= bboxmax.y; pixel.y++)
     {
       Vec3F bc = barycentric(p_TriangleVertices, pixel);
       if (bc.x < 0 || bc.y < 0 || bc.z < 0) continue;
-      colorPixel(pixel.x, pixel.y, p_Color);
+      
+      if (p_DepthTest)
+      {
+        pixel.z = 0;
+        for (int i = 0; i < 3; i++) pixel.z += p_TriangleVertices[i].z * bc.raw[i];
+        if (g_DepthBuffer[int(pixel.x + pixel.y * width)] < pixel.z) {
+          g_DepthBuffer[int(pixel.x + pixel.y * width)] = pixel.z;
+          colorPixel((int)pixel.x, (int)pixel.y, p_Color);
+        }
+      }
+      else
+      {
+        // no depth-testing, just draw the pixel:
+        colorPixel((int)pixel.x, (int)pixel.y, p_Color);
+      }
     }
   }
 }
+
+static Vec3F
+worldToScreen (Vec3F p_VecWS)
+{
+  // shift and scale x,y from WS [-1, 1] to SS [0, width or height]
+  // keep z-values unchanged:
+  return Vec3F(
+    roundFloatToUInt((p_VecWS.x + 1.0f) * Dx12Wrapper::ms_Width / 2.0f),
+    roundFloatToUInt((p_VecWS.y + 1.0f) * Dx12Wrapper::ms_Height / 2.0f),
+    p_VecWS.z
+  );
+}
+
 //---------------------------------------------------------------------------//
 // Message handler
 //---------------------------------------------------------------------------//
@@ -328,6 +370,8 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
     {
       if ('W' == virtualKeyCode)
       {
+        clearBuffer(BLACK);
+
         // Render wireframe model:
         g_FlipVertically = true;
 
@@ -361,16 +405,7 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
       }
       else if ('C' == virtualKeyCode)
       {
-        clearBuffer(BLACK);
-      }
-      else if ('T' == virtualKeyCode)
-      {
-        Vec2I t0[3] = { Vec2I(10, 70),   Vec2I(50, 160),  Vec2I(70, 80) };
-        Vec2I t1[3] = { Vec2I(180, 50),  Vec2I(150, 1),   Vec2I(70, 180) };
-        Vec2I t2[3] = { Vec2I(180, 150), Vec2I(120, 160), Vec2I(130, 180) };
-        drawTriangle(t0, RED);
-        drawTriangle(t1, WHITE);
-        drawTriangle(t2, BLUE);
+        clearBuffer(WHITE);
       }
       else if ('L' == virtualKeyCode)
       {
@@ -384,6 +419,8 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
       }
       else if ('S' == virtualKeyCode)
       {
+        clearBuffer(BLACK);
+
         // shade the model with flat color and lamber cosine law
         g_FlipVertically = true;
 
@@ -391,14 +428,16 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
 
         for (int i = 0; i < g_Model->nfaces(); i++) {
           std::vector<int> face = g_Model->face(i);
-          Vec2I posSS[3];
+          Vec3F posSS[3];
           Vec3F posWS[3];
           for (int j = 0; j < 3; j++)
           {
             Vec3F v = Vec3F(g_Model->vert(face[j]).raw);
-            posSS[j] = Vec2I(
+            posSS[j] = Vec3F(
               roundFloatToUInt((v.x + 1.0f) * Dx12Wrapper::ms_Width / 2.0f),
-              roundFloatToUInt((v.y + 1.0f) * Dx12Wrapper::ms_Height / 2.0f));
+              roundFloatToUInt((v.y + 1.0f) * Dx12Wrapper::ms_Height / 2.0f),
+              v.z
+            );
             posWS[j] = v;
           }
           Vec3F n = Vec3F::cross(posWS[2] - posWS[0], posWS[1] - posWS[0]);
@@ -406,8 +445,38 @@ windowProc(HWND p_Wnd, UINT p_Message, WPARAM p_WParam, LPARAM p_LParam)
           float intensity = Vec3F::dot(n, lightDir); // dot product: Lambert cosine law
           if (intensity > 0)
           {
-            drawTriangle(posSS, (Colors::White * intensity).convertToUint32());
+            drawTriangle(posSS, (Colors::White * intensity).convertToUint32(), false);
           }
+        }
+
+        g_FlipVertically = false;
+      }
+      else if ('D' == virtualKeyCode)
+      {
+        clearBuffer(BLACK);
+
+        // Draw with Depth testing
+        g_FlipVertically = true;
+
+        static constexpr Vec3F lightDir = Vec3F(0.0f, 0.0f, -1.0f);
+
+        for (int i = 0; i < g_Model->nfaces(); i++)
+        {
+          std::vector<int> face = g_Model->face(i);
+          Vec3F posSS[3];
+          Vec3F posWS[3];
+          for (int j = 0; j < 3; j++)
+          {
+            posWS[j] = Vec3F(g_Model->vert(face[j]).x, g_Model->vert(face[j]).y, g_Model->vert(face[j]).z);
+            posSS[j] = worldToScreen(posWS[j]);
+          }
+          
+          // Apply intensity through dot product: (Lambert cosine law)
+          Vec3F n = Vec3F::cross(posWS[2] - posWS[0], posWS[1] - posWS[0]);
+          n.normalize();
+          float intensity = Vec3F::dot(n, lightDir); 
+          if (intensity > 0)
+            drawTriangle(posSS, (Colors::White * intensity).convertToUint32(), true);
         }
 
         g_FlipVertically = false;
@@ -468,6 +537,14 @@ WinMain(HINSTANCE p_Instance, HINSTANCE, LPSTR, int p_CmdShow)
   g_Model = new Model("../Assets/obj/african_head/african_head.obj");
   assert(g_Model->initialized);
   g_FlipVertically = false;
+
+  // Init depth buffer
+  g_DepthBuffer = new float[windowWidth * windowHeight];
+  for (int i = windowWidth * windowHeight; i--;
+    g_DepthBuffer[i] = -std::numeric_limits<float>::max());
+
+  // random color
+  Colors::ColorRGBA color = { .r = rndf(), .g = rndf(), .b = rndf(), .a = 1.0f };
 
   Dx12Wrapper::onInit(windowWidth, windowHeight);
 

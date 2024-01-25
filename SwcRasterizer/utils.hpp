@@ -16,6 +16,7 @@
 //---------------------------------------------------------------------------//
 HWND g_Window;
 Model* g_Model;
+float* g_DepthBuffer;
 
 bool g_FlipVertically;
 
